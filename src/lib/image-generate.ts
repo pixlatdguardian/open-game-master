@@ -3,6 +3,7 @@ import { comfyModelPicked, generateComfyImage } from "@/lib/comfyui";
 import { comfyModel } from "@/lib/image-models/catalog";
 import { generateOpenAiImage, openAiImagesConfigured, openAiImagesPaid } from "@/lib/openai-images";
 import { generateHarnessImage, harnessImagesReady } from "@/lib/harness/images";
+import type { ImageReference } from "@/lib/image-references";
 import { PaidAiRefusedError, paidAiAllowedNow } from "@/lib/shared-host";
 import { recordUsage } from "@/lib/usage/ledger";
 import type { AspectPreset, GeneratedImage, ImageMode, StorySettings } from "@/lib/types";
@@ -42,7 +43,9 @@ export async function generateStoryImage(
     mode: ImageMode;
     aspect: AspectPreset;
     seed?: number;
-    hasReferences?: boolean;
+    // The characters' portraits; only ComfyUI's Qwen Image 2.1 models use
+    // them, and the others warn that they did not.
+    references?: ImageReference[];
     // What the picture must leave out, from the table's boundary.
     negative?: string;
     // The admin's test picture (src/lib/harness/picture-test.ts): the agent
@@ -50,7 +53,7 @@ export async function generateStoryImage(
     verifying?: boolean;
   },
 ): Promise<GeneratedImage> {
-  const { verifying, ...request } = options;
+  const { verifying, references, ...request } = options;
   // OpenAI pictures run on the host's key and the agent program on the
   // admin's plan: the shared-host policy answers for both before anything
   // is painted (src/lib/shared-host.ts). ComfyUI is the host's own GPU.
@@ -61,7 +64,7 @@ export async function generateStoryImage(
   }
   const started = Date.now();
   const image = await (settings.imageBackend === "openai"
-    ? generateOpenAiImage(request, settings)
+    ? generateOpenAiImage({ ...request, hasReferences: Boolean(references?.length) }, settings)
     : settings.imageBackend === "harness"
       ? generateHarnessImage({ ...request, force: Boolean(verifying) })
       : // Everything else lands on ComfyUI, which was the previous behavior
@@ -70,6 +73,7 @@ export async function generateStoryImage(
           url: settings.comfyUrl || undefined,
           checkpoint: settings.comfyCheckpoint || undefined,
           ...request,
+          references,
         }));
   recordUsage({
     kind: "image",

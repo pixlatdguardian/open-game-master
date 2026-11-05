@@ -88,6 +88,10 @@ export type GraphRecipe = {
   // How the prompt becomes conditioning. "text" is CLIPTextEncode; the others
   // are a model's own encoder node, which also takes the negative.
   encode?: "text" | "qwen-image-21" | "mage-flow";
+  // FLUX.2's ReferenceLatent: each character portrait is VAE-encoded and set
+  // on the conditioning. Only on models it was tried with; Qwen Image 2.1's
+  // encoder takes references by itself (workflow.ts takesReferences).
+  referenceLatent?: boolean;
   // Words some models need ahead of every prompt (Lumina's system prompt,
   // Pony's score tags).
   prefix?: string;

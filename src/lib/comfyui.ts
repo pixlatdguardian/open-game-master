@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { configValue, getGlobalConfig } from "@/lib/app-config";
 import { sniffImage } from "@/lib/image-format";
 import { scheduleImageVariants } from "@/lib/image-variants";
-import { ANY_CHECKPOINT, CHECKPOINT_PRESET, comfyModel } from "@/lib/image-models/catalog";
+import { ANY_CHECKPOINT, CHECKPOINT_PRESET, COMFY_MODELS, comfyModel } from "@/lib/image-models/catalog";
 import {
   checkpointModel,
   curateModels,
@@ -16,7 +17,8 @@ import {
 } from "@/lib/image-models/curate";
 import { FOLDER_LOADER, type ComfyFolder, type ComfyModel, type ModelFiles } from "@/lib/image-models/types";
 import { VERIFIED_ROWS } from "@/lib/image-models/verified";
-import { buildModelWorkflow, modelDimensions } from "@/lib/image-models/workflow";
+import { buildModelWorkflow, modelDimensions, takesReferences } from "@/lib/image-models/workflow";
+import type { ImageReference } from "@/lib/image-references";
 import { readComfyFiles } from "@/lib/setup/discovery-logic";
 import type { AspectPreset, GeneratedImage, ImageMode } from "@/lib/types";
 import { recordMediaFile } from "@/lib/media-access";
@@ -218,6 +220,43 @@ type HistoryEntry = {
 };
 
 
+// Each portrait copied into ComfyUI's input folder (POST /upload/image),
+// named by its content so the same portrait is stored once, and the name
+// ComfyUI gave it for a LoadImage node. A portrait ComfyUI will not take
+// fails the picture: painting the character without it is not what was
+// asked for, and the error says why.
+async function uploadReferences(url: string, references: ImageReference[]): Promise<string[]> {
+  const names: string[] = [];
+  for (const reference of references) {
+    const hash = createHash("sha256").update(reference.bytes).digest("hex").slice(0, 24);
+    const form = new FormData();
+    form.append("image", new Blob([new Uint8Array(reference.bytes)], { type: reference.mime }), `odm-ref-${hash}.${reference.ext}`);
+    form.append("overwrite", "true");
+    const timeout = timeoutSignal(STATUS_TIMEOUT_MS * 2);
+    try {
+      const response = await comfyFetch(`${url}/upload/image`, { method: "POST", body: form, signal: timeout.signal });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw new ComfyRefusal(`ComfyUI would not take a character's reference portrait (${response.status}).`);
+      }
+      const answer = await readJson<{ name?: unknown; subfolder?: unknown }>(response);
+      if (typeof answer.name !== "string" || !answer.name) {
+        throw new ComfyRefusal("ComfyUI did not name the reference portrait it stored.");
+      }
+      const subfolder = typeof answer.subfolder === "string" ? answer.subfolder : "";
+      names.push(subfolder ? `${subfolder}/${answer.name}` : answer.name);
+    } catch (error) {
+      if (error instanceof ComfyRefusal) {
+        throw error;
+      }
+      throw new Error(`Could not reach ComfyUI at ${url}. Start ComfyUI and check the URL.`);
+    } finally {
+      timeout.clear();
+    }
+  }
+  return names;
+}
+
 // The catalog model chosen in Admin > Images, which paints every campaign's
 // pictures; undefined in checkpoint mode, where each campaign's checkpoint
 // does.
@@ -236,6 +275,12 @@ export function comfyModelPicked(checkpoint: string | undefined): boolean {
   return Boolean(chosenComfyModel()) || Boolean((checkpoint ?? "").trim());
 }
 
+// The catalog's models that paint characters from their portraits, named
+// from the catalog so the warning never lists a model it no longer has.
+function referenceModels(): string {
+  return COMFY_MODELS.filter(takesReferences).map((model) => model.label).join(", ");
+}
+
 export async function generateComfyImage(options: {
   url?: string;
   checkpoint?: string;
@@ -243,7 +288,8 @@ export async function generateComfyImage(options: {
   mode: ImageMode;
   aspect: AspectPreset;
   seed?: number;
-  hasReferences?: boolean;
+  // The characters' portraits (src/lib/image-references.ts).
+  references?: ImageReference[];
   negative?: string;
 }): Promise<GeneratedImage> {
   const url = resolveComfyUrl(options.url);
@@ -285,7 +331,9 @@ export async function generateComfyImage(options: {
   // A model that runs without a negative prompt has nowhere to put a table
   // boundary's picture negatives, and they are not folded into the prompt:
   // "Leave out: blood, wounds" in a positive prompt paints blood and wounds.
-  const workflow = buildModelWorkflow(model, { prompt: options.prompt, negative: options.negative, width, height, seed, files });
+  const given = options.references ?? [];
+  const references = given.length && takesReferences(model) ? await uploadReferences(url, given) : [];
+  const workflow = buildModelWorkflow(model, { prompt: options.prompt, negative: options.negative, width, height, seed, files, references });
 
   const submitTimeout = timeoutSignal(STATUS_TIMEOUT_MS * 2);
   let promptId = "";
@@ -413,8 +461,9 @@ export async function generateComfyImage(options: {
     height,
     elapsedSeconds: Math.round((Date.now() - startedAt) / 100) / 10,
     seed,
-    warnings: options.hasReferences
-      ? ["Character reference images are not used by the ComfyUI backend."]
-      : undefined,
+    warnings:
+      given.length && !references.length
+        ? [`Character reference images are not used by ${model.label}; ${referenceModels()} take them.`]
+        : undefined,
   };
 }

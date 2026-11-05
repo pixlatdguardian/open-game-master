@@ -40,7 +40,7 @@ export type DmTurn = {
   // PCs whose combat turn was adjudicated this DM turn; the initiative
   // pointer only advances past a PC on this list (or with a landed roll).
   resolvedCharacterIds: string[];
-  imageArgs: { prompt: string; reason?: string } | null;
+  imageArgs: { prompt: string; reason?: string; characterIds?: string[] } | null;
   locationId: string | null;
   mutationCount: number;
   encounterCount: number;

@@ -12,6 +12,7 @@ import { imageToolArgsSchema, type ImageToolArgs } from "@/lib/image-tool";
 import { publishEphemeral, publishPersisted } from "@/lib/events";
 import { enqueueMediaJob } from "@/lib/media-queue";
 import { toEnglishForImage } from "@/lib/image-english";
+import { loadImageReferences, resolveImageCharacterIds } from "@/lib/image-references";
 import { artDirection, scenePrompt, typedStyle } from "@/lib/art-direction";
 import { presetFor } from "@/lib/worlds/preset";
 import type { AspectPreset, GeneratedImage, ImageRequest, StorySettings } from "@/lib/types";
@@ -79,11 +80,15 @@ export function fulfillMessageImage(
       const typed = typedStyle(campaign.settings, "scene");
       // The AI DM writes its prompt in English, a human DM may not.
       const english = await toEnglishForImage(campaign, { prompt, style: typed });
+      // The portraits of the characters the picture shows, for a backend
+      // that can paint them as they look (src/lib/image-references.ts).
+      const references = await loadImageReferences(campaignId, request.characterIds);
       const image = await generateStoryImage(settings, {
         prompt: scenePrompt(typed ? english.style : look.scene, english.prompt),
         mode: request.mode ?? settings.imageMode,
         aspect: request.aspect ?? settings.aspect,
         negative: boundaryNegativeTerms(boundaries),
+        references,
       });
       if (!setMessageGeneratedImage(messageId, image)) {
         return;
@@ -171,7 +176,7 @@ export function handleGenerateImage(
     backend: campaign.settings.imageBackend,
     aspect: campaign.settings.aspect,
     reason: args.reason,
-    characterIds: [],
+    characterIds: resolveImageCharacterIds(campaign.id, args.characterIds),
   };
   if (!setMessageImageRequest(message.id, request)) {
     return { error: "That passage is no longer there.", retry: true };

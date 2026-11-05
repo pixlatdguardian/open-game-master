@@ -431,6 +431,7 @@ export const COMFY_MODELS: readonly ComfyModel[] = [
     },
     graph: {
       load: { unet: "unet", clip: { node: "CLIPLoader", type: "flux2", slots: ["clip"] }, vae: "vae" },
+      referenceLatent: true,
       negative: "zero",
       latent: "EmptyFlux2LatentImage",
       sampler: { kind: "advanced", guider: { node: "CFGGuider", cfg: 1 }, sampler: "euler", sigmas: { node: "Flux2Scheduler", steps: 4 } },

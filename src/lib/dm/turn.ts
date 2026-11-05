@@ -79,6 +79,7 @@ import { createStreamingArtifactFilter, extractReplyText, extractStoryText } fro
 import { salvageJsonToolCalls } from "@/lib/dm/json-salvage";
 import type { CharacterSheet } from "@/lib/schemas/sheet";
 import { fulfillAutoImage } from "@/lib/dm/images";
+import { resolveImageCharacterIds } from "@/lib/image-references";
 import { imagesAvailable } from "@/lib/capabilities";
 import { imageProducerReady } from "@/lib/image-generate";
 import { enqueueNarrationAudio } from "@/lib/tts";
@@ -2103,7 +2104,7 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
     if (!turn.imageArgs) {
       const parsedImage = parseGenerateImageToolCall(echoedToolCalls);
       if (parsedImage?.prompt) {
-        turn.imageArgs = { prompt: parsedImage.prompt, reason: parsedImage.reason };
+        turn.imageArgs = { prompt: parsedImage.prompt, reason: parsedImage.reason, characterIds: parsedImage.characterIds };
       }
     }
 
@@ -3622,7 +3623,7 @@ function finalize(context: TurnContext, turn: DmTurn, failed: string, spoken: re
             backend: context.campaign.settings.imageBackend,
             aspect: context.campaign.settings.aspect,
             reason: turn.imageArgs.reason,
-            characterIds: [],
+            characterIds: resolveImageCharacterIds(campaignId, turn.imageArgs.characterIds),
           }
         : undefined,
     locationId: turn.locationId ?? undefined,

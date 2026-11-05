@@ -52,7 +52,32 @@ export type WorkflowRequest = {
   // A benchmark trying other settings than the catalog's.
   steps?: number;
   cfg?: number;
+  // Character portraits already in ComfyUI's input folder (the names its
+  // /upload/image answered), for a model that takesReferences.
+  references?: string[];
 };
+
+// Whether this model can look at reference pictures: Qwen Image 2.1's
+// encoder reads them as "Picture N" ahead of the prompt, and FLUX.2 models
+// marked referenceLatent take them through ReferenceLatent.
+export function takesReferences(model: ComfyModel): boolean {
+  return model.graph.encode === "qwen-image-21" || model.graph.referenceLatent === true;
+}
+
+// The words ahead of the prompt that say what the reference pictures are.
+// Asking to keep the face and clothes, or for a new pose, made no
+// difference in tests; asking for a new scene is what matters.
+export function referenceLead(model: ComfyModel, count: number): string {
+  if (count <= 0 || !takesReferences(model)) return "";
+  if (model.graph.encode === "qwen-image-21") {
+    return count === 1
+      ? "Picture 1 shows a character. Paint them in a new scene: "
+      : "Pictures 1 and 2 show two characters. Paint them together in a new scene: ";
+  }
+  return count === 1
+    ? "The character from the reference image, in a new scene: "
+    : "The two characters from the reference images, together in a new scene: ";
+}
 
 // "4:3" for 1024x768.
 function aspectRatio(width: number, height: number): string {
@@ -111,17 +136,30 @@ export function buildModelWorkflow(model: ComfyModel, request: WorkflowRequest):
     diffusion = [add(patch.node, { ...patchInputs(patch), model: diffusion }), 0];
   }
 
+  const references = takesReferences(model) ? (request.references ?? []) : [];
   const text =
     recipe.promptFormat === "ideogram4-json"
       ? JSON.stringify({ aspect_ratio: aspectRatio(width, height), high_level_description: request.prompt })
-      : `${recipe.prefix ?? ""}${request.prompt}`;
+      : `${recipe.prefix ?? ""}${referenceLead(model, references.length)}${request.prompt}`;
   const negativeText =
     recipe.negative === "text" ? [DEFAULT_NEGATIVE, request.negative?.trim()].filter(Boolean).join(", ") : "";
   let positive: Ref;
   let negative: Ref;
   let latent: Ref | null = null;
   if (recipe.encode === "qwen-image-21") {
-    const encoded = add("TextEncodeQwenImage21", { clip, prompt: text, negative_prompt: negativeText, resolution: 1024, vae });
+    // The encoder also returns a latent sized to the first picture; the
+    // empty latent below keeps the size this picture was asked for.
+    const pictures = Object.fromEntries(
+      references.map((name, index) => [`images.image_${index + 1}`, [add("LoadImage", { image: name }), 0]]),
+    );
+    const encoded = add("TextEncodeQwenImage21", {
+      clip,
+      prompt: text,
+      negative_prompt: negativeText,
+      resolution: 1024,
+      vae,
+      ...pictures,
+    });
     positive = [encoded, 0];
     negative = [encoded, 1];
   } else if (recipe.encode === "mage-flow") {
@@ -138,10 +176,19 @@ export function buildModelWorkflow(model: ComfyModel, request: WorkflowRequest):
     negative = [encoded, 1];
     latent = [encoded, 2];
   } else {
-    positive = [add("CLIPTextEncode", { text, clip }), 0];
+    // FLUX.2 references: each portrait scaled to about a megapixel,
+    // VAE-encoded and set on both conditionings, as BFL's edit graphs do.
+    const latents: Ref[] = references.map((name) => {
+      const image = add("LoadImage", { image: name });
+      const scaled = add("ImageScaleToTotalPixels", { image: [image, 0], upscale_method: "lanczos", megapixels: 1, resolution_steps: 1 });
+      return [add("VAEEncode", { pixels: [scaled, 0], vae }), 0];
+    });
+    const withReferences = (conditioning: Ref): Ref =>
+      latents.reduce<Ref>((current, latent) => [add("ReferenceLatent", { conditioning: current, latent }), 0], conditioning);
+    positive = withReferences([add("CLIPTextEncode", { text, clip }), 0]);
     negative =
       recipe.negative === "text"
-        ? [add("CLIPTextEncode", { text: negativeText, clip }), 0]
+        ? withReferences([add("CLIPTextEncode", { text: negativeText, clip }), 0])
         : [add("ConditioningZeroOut", { conditioning: positive }), 0];
   }
   if (recipe.guidance !== undefined) {

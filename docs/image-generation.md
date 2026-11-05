@@ -62,8 +62,22 @@ ComfyUI supports.
 
 Notes:
 
-- Character portrait references are not used by this backend; scenes with
-  saved characters generate from the text prompt alone.
+- Character portraits are used as reference images by the models that can
+  look at them: Qwen Image 2.1 (both models; the portraits go into its text
+  encoder) and FLUX.2 [klein] 4B (through `ReferenceLatent`). When the
+  narrator's `generate_image` call names characters (`characterIds`, at most
+  two, this campaign's sheets only), their portraits are uploaded to
+  ComfyUI's `/upload/image` and painted from. Other models paint from the
+  text alone, and the picture carries a warning saying the portraits were
+  not used.
+- Uploaded portraits stay in ComfyUI's `input` folder, named
+  `odm-ref-<hash>.<ext>` so the same portrait overwrites its own copy.
+  Anyone who can reach that ComfyUI can see them; keep it on loopback or a
+  private address.
+- A portrait on a plain background works best as a reference. A scenic
+  background tends to carry over into the scene, and a close head-and-
+  shoulders crop loses whatever it leaves out (a tail, boots, the lower
+  half of an outfit).
 - Generations queue behind whatever else your ComfyUI instance is doing.
 - Set `COMFYUI_URL` in `.env.local` to change the default server URL.
 
@@ -213,8 +227,8 @@ dall-e model behind a proxy) is asked once more without the field, at its own
 default, and a size it refuses is replaced by one from the list its refusal
 names. Notes:
 
-- Character portrait references are not used by this backend, same as ComfyUI;
-  the picture comes from the text prompt alone.
+- Character portrait references are not used by this backend; the picture
+  comes from the text prompt alone.
 - Nothing is probed: a backend with no key or no model simply records the
   request and the placeholder tells the table a picture is coming.
 - Prompts go to OpenAI, so this is the one backend that is not on-device.

@@ -22,6 +22,7 @@ import { ancestryOf, findDraconicAncestry } from "@/lib/srd/racial-grants";
 import { npcRoleLabel } from "@/lib/placeholders";
 import { characterPortraitPrompt, idWords, npcPortraitPrompt, type CharacterLook } from "@/lib/portrait-prompt";
 import { raceWords } from "@/lib/npc-race";
+import { raceLookFor } from "@/lib/race-looks";
 
 // One-shot portrait render at character creation. Status lives in memory
 // only: a restart mid-job simply drops the entry and the UI falls back to
@@ -59,6 +60,7 @@ export function libraryLook(character: LibraryCharacter): CharacterLook {
     gender: sheet.gender ?? "",
     race: homebrewLabel(character.userId, sheet.race, "race") ?? serverSpeciesName(sheet.race) ?? idWords(sheet.race),
     ancestry: dragonOf(sheet.racialChoices?.ancestry),
+    raceLook: raceLookFor(sheet.race),
     className: workshopClassName(sheet.class) ?? idWords(sheet.class),
     background: homebrewLabel(character.userId, sheet.background, "background") ?? idWords(sheet.background),
     appearance: sheet.appearance ?? "",
@@ -84,6 +86,7 @@ export function companionLook(sheet: CharacterSheet, source: CompanionPortraitSo
     gender: sheet.gender ?? "",
     race: sheet.raceLabel ?? idWords(sheet.race),
     ancestry: dragonOf(source.ancestry, sheet.features),
+    raceLook: raceLookFor(sheet.race),
     className: workshopClassName(sheet.class) ?? idWords(sheet.class),
     background: sheet.backgroundLabel ?? idWords(sheet.background),
     appearance,
@@ -204,7 +207,7 @@ export function queueNpcPortrait(
     enqueueMediaJob(`npc portrait ${npc.id}`, async () => {
       try {
         const { trait, role } = await toEnglishForImage(campaign, { trait: npc.trait, role: npcRoleLabel(npc.role) });
-        const prompt = npcPortraitPrompt({ gender: npc.gender, race: raceWords(npc.race), role, trait, personality: npc.personality }, style);
+        const prompt = npcPortraitPrompt({ gender: npc.gender, race: raceWords(npc.race), role, raceLook: raceLookFor(npc.race), trait, personality: npc.personality }, style);
         const settings = configuredDefaultStorySettings();
         const image = await generateStoryImage(settings, {
           prompt,

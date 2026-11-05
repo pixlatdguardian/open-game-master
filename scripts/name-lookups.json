@@ -2020,7 +2020,7 @@
     "lib/player-characters.ts#fallback": [["key",1,"the selected sheet id, else the player's first sheet (a UI default)"],["key",1,"the turn's character by id: one the player owns, else a companion they command"]],
     "lib/player-characters.ts#first": [["key",1,"UI keys, ids, refs, view choices and documented defaults (a palette, a tile, a peer volume, the first sheet)"]],
     "lib/portal.ts#partial": [["key",4,"route paths"],["pattern",1,"a fixed pattern over text that reads no record's name: its English words are scripts/text-comparisons.json's to classify"]],
-    "lib/portrait-prompt.ts#partial": [["key",1,"the homebrew slug prefix"]],
+    "lib/portrait-prompt.ts#partial": [["key",1,"the homebrew slug prefix"],["pattern",1,"a fixed pattern over text that reads no record's name: its English words are scripts/text-comparisons.json's to classify"]],
     "lib/portrait.ts#partial": [["key",1,"file paths"]],
     "lib/prompt-boundary.ts#partial": [["pattern",1,"a fixed pattern over text that reads no record's name: its English words are scripts/text-comparisons.json's to classify"]],
     "lib/recap.ts#first": [["parse",1,"a recap's first paragraph"]],

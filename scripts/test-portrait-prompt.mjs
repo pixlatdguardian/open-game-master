@@ -78,8 +78,8 @@ await test("an NPC is painted as who they are at a glance: gender, people and ro
   assert.equal(npcIdentity({ gender: "Female", race: "Wood Elf", role: "Archer" }), "Female Wood Elf Archer");
   assert.equal(npcIdentity({ gender: "", role: "" }), "");
   const prompt = npcPortraitPrompt({ gender: "Male", role: "Guard", trait: "a broken nose", personality: "gruff" });
-  assert.match(prompt, /\. Male Guard\. /);
-  assert.match(prompt, /a broken nose\. gruff\. /);
+  // The trait leads, so the model's idea of a guard does not paint over it.
+  assert.match(prompt, /viewer\. a broken nose\. Male Guard\. gruff\. /);
 });
 
 await test("a homebrew race and background read as their names: on the sheet, to the AI GM and in the portrait", () => {
@@ -183,6 +183,59 @@ await test("an older host, with no route for it, shows no Paint a portrait, and 
   assert.equal(hostOffers({ ...older, features: { companionPortrait: true } }, "companionPortrait"), true);
   assert.equal(hostOffers(null, "companionPortrait"), true, "unknown offers it, as every capability does");
   assert.match(read("src/app/campaigns/[campaignId]/PartyPanel.tsx"), /const canPaint = offersImages\(capabilities\) && hostOffers\(capabilities, "companionPortrait"\);/);
+});
+
+// Patch: a race's look written out (src/lib/race-looks.ts), the player's
+// Appearance first, the class's clothes named.
+const { raceLookFor } = await import("../src/lib/race-looks.ts");
+const BUNDLED_RACES = JSON.parse(fs.readFileSync(new URL("../src/lib/srd/races.json", import.meta.url), "utf8")).races;
+
+await test("a bundled race's look is written out, a subrace reads its people's, and nothing is guessed", () => {
+  assert.match(raceLookFor("tiefling"), /Horns, a long thin tail/);
+  assert.equal(raceLookFor("hill_dwarf"), raceLookFor("mountain_dwarf"));
+  assert.match(raceLookFor("hill_dwarf"), /stocky/);
+  // A content-pack copy of a bundled race reads the same row.
+  assert.equal(raceLookFor("odm-hill-dwarf"), raceLookFor("hill_dwarf"));
+  assert.equal(raceLookFor("human"), "");
+  assert.equal(raceLookFor("homebrew:3f2a8b7c"), "");
+  assert.equal(raceLookFor(undefined), "");
+  const unwritten = BUNDLED_RACES.filter((race) => !raceLookFor(race.id)).map((race) => race.id);
+  assert.deepEqual(unwritten, ["human", "variant_human"], "every bundled people but humans has a look");
+});
+
+await test("no race's look picks a colour, a hairstyle or a beard: those are the player's", () => {
+  const theirs = /\b(red|blue|green|black|white|grey|gray|golden|silver|purple|pale|dark|beard|bearded|braid|braided|bald|moustache|mustache|long hair|short hair)\b/i;
+  for (const race of BUNDLED_RACES) {
+    assert.doesNotMatch(raceLookFor(race.id), theirs, race.id);
+  }
+});
+
+await test("the Appearance leads, the race's look follows the identity, and the class's clothes are named", () => {
+  const prompt = characterPortraitPrompt({
+    gender: "Female",
+    race: "tiefling",
+    raceLook: raceLookFor("tiefling"),
+    className: "warlock",
+    background: "sage",
+    appearance: "Pale blue skin, short silver hair",
+    backstory: "",
+  });
+  assert.match(
+    prompt,
+    /^Tabletop RPG character portrait[^.]*\. Pale blue skin, short silver hair\. Female tiefling warlock\. Horns, a long thin tail[^.]*\. sage background\. Wearing a warlock's clothes\. Detailed/,
+    prompt,
+  );
+  assert.match(characterPortraitPrompt({ gender: "", race: "", className: "artificer", background: "", appearance: "", backstory: "" }), /Wearing an artificer's clothes/);
+  assert.doesNotMatch(characterPortraitPrompt({ gender: "", race: "elf", className: "", background: "", appearance: "", backstory: "" }), /Wearing/);
+});
+
+await test("every painter reads the race's look: a library character, a companion and an NPC", () => {
+  const hero = world.addHero({ class: "warlock", race: "tiefling", gender: "Female" });
+  assert.equal(companionLook(world.sheet(hero.id), { personality: "" }).raceLook, raceLookFor("tiefling"));
+  assert.match(read("src/lib/portrait.ts"), /raceLook: raceLookFor\(sheet\.race\),\n\s+className: workshopClassName/);
+  assert.match(read("src/lib/portrait.ts"), /raceLook: raceLookFor\(npc\.race\)/);
+  const npc = npcPortraitPrompt({ gender: "Male", race: "Hill Dwarf", raceLook: raceLookFor("hill_dwarf"), role: "Smith", trait: "clean-shaven", personality: "" });
+  assert.match(npc, /viewer\. clean-shaven\. Male Hill Dwarf Smith\. Short and stocky/);
 });
 
 console.log(`\n${passed} portrait prompt checks passed`);

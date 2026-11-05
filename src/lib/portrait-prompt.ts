@@ -17,6 +17,9 @@ export type CharacterLook = {
   race: string;
   // A dragonborn's dragon ("gold"), painted as the colour of their scales.
   ancestry?: string;
+  // What the race looks like (src/lib/race-looks.ts), "" when nothing is
+  // written for it.
+  raceLook?: string;
   className: string;
   background: string;
   // What they look like, as the builder's Appearance field says it. A
@@ -27,15 +30,23 @@ export type CharacterLook = {
 
 // Deterministic, and genre-neutral unless the caller passes the campaign's
 // portrait style: classes span all six genre catalogs.
+//
+// The player's Appearance comes first: an image model weighs what it reads
+// early, and its idea of a race wins over a sentence after it (a dwarf
+// written clean-shaven was painted bearded every time). The race's look
+// follows the identity, then the class's clothes: a portrait with no
+// clothing in its words was often painted without any.
 export function characterPortraitPrompt(look: CharacterLook, style = ""): string {
   const race = look.ancestry && look.race ? `${look.ancestry}-scaled ${look.race}` : look.race;
   const identity = [look.gender, race, look.className].filter(Boolean).join(" ");
   return [
     FRAME,
+    look.appearance,
     identity,
+    look.raceLook ?? "",
     style,
     look.background ? `${look.background} background` : "",
-    look.appearance,
+    look.className ? `Wearing ${article(look.className)} ${look.className}'s clothes` : "",
     look.backstory.slice(0, 200),
     FINISH,
   ]
@@ -57,14 +68,23 @@ export type NpcLook = {
   race?: string;
   // The role's label ("Merchant"), or the text the author typed.
   role: string;
+  // What their people look like (src/lib/race-looks.ts).
+  raceLook?: string;
   // Their distinguishing trait, in English.
   trait: string;
   // The engine's own English adjectives (describePersonality).
   personality: string;
 };
 
+// The trait leads, as a character's Appearance does.
 export function npcPortraitPrompt(npc: NpcLook, style = ""): string {
-  return [FRAME, npcIdentity(npc), style, npc.trait, npc.personality, FINISH].filter(Boolean).join(". ");
+  return [FRAME, npc.trait, npcIdentity(npc), npc.raceLook ?? "", style, npc.personality, FINISH].filter(Boolean).join(". ");
+}
+
+// "a" or "an" before a class's name, by its first letter's sound as
+// written: "an artificer", "a warlock".
+function article(word: string): string {
+  return /^[aeiou]/i.test(word) ? "an" : "a";
 }
 
 // An id as words ("hill_dwarf" is "hill dwarf"). A homebrew or workshop id

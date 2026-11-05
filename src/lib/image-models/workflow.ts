@@ -29,6 +29,8 @@ export function modelDimensions(model: ComfyModel | null, mode: PictureMode, asp
 // pictures: only through a negative prompt the sampler actually weighs.
 export function honoursNegative(model: ComfyModel): boolean {
   if (model.graph.negative !== "text") return false;
+  // NAG weighs the negative inside attention, whatever the cfg.
+  if (model.graph.nag) return true;
   const sampler = model.graph.sampler;
   if (sampler.kind === "ksampler" || sampler.kind === "custom") return sampler.cfg > 1;
   const guider = sampler.guider;
@@ -135,6 +137,10 @@ export function buildModelWorkflow(model: ComfyModel, request: WorkflowRequest):
   for (const patch of recipe.modelPatches ?? []) {
     diffusion = [add(patch.node, { ...patchInputs(patch), model: diffusion }), 0];
   }
+  if (recipe.nag) {
+    const { scale, alpha, tau } = recipe.nag;
+    diffusion = [add("NAGuidance", { model: diffusion, nag_scale: scale, nag_alpha: alpha, nag_tau: tau }), 0];
+  }
 
   const references = takesReferences(model) ? (request.references ?? []) : [];
   const text =
@@ -142,7 +148,9 @@ export function buildModelWorkflow(model: ComfyModel, request: WorkflowRequest):
       ? JSON.stringify({ aspect_ratio: aspectRatio(width, height), high_level_description: request.prompt })
       : `${recipe.prefix ?? ""}${referenceLead(model, references.length)}${request.prompt}`;
   const negativeText =
-    recipe.negative === "text" ? [DEFAULT_NEGATIVE, request.negative?.trim()].filter(Boolean).join(", ") : "";
+    recipe.negative === "text"
+      ? [DEFAULT_NEGATIVE, recipe.negativeExtra, request.negative?.trim()].filter(Boolean).join(", ")
+      : "";
   let positive: Ref;
   let negative: Ref;
   let latent: Ref | null = null;
@@ -186,10 +194,16 @@ export function buildModelWorkflow(model: ComfyModel, request: WorkflowRequest):
     const withReferences = (conditioning: Ref): Ref =>
       latents.reduce<Ref>((current, latent) => [add("ReferenceLatent", { conditioning: current, latent }), 0], conditioning);
     positive = withReferences([add("CLIPTextEncode", { text, clip }), 0]);
-    negative =
-      recipe.negative === "text"
-        ? withReferences([add("CLIPTextEncode", { text: negativeText, clip }), 0])
-        : [add("ConditioningZeroOut", { conditioning: positive }), 0];
+    // NAG steers away from everything in the negative, so references there
+    // would push the character out of the picture: they go on the positive
+    // only.
+    const negativeEncoded: Ref | null =
+      recipe.negative === "text" ? [add("CLIPTextEncode", { text: negativeText, clip }), 0] : null;
+    negative = negativeEncoded
+      ? recipe.nag
+        ? negativeEncoded
+        : withReferences(negativeEncoded)
+      : [add("ConditioningZeroOut", { conditioning: positive }), 0];
   }
   if (recipe.guidance !== undefined) {
     positive = [add("FluxGuidance", { conditioning: positive, guidance: recipe.guidance }), 0];

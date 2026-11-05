@@ -431,8 +431,15 @@ export const COMFY_MODELS: readonly ComfyModel[] = [
     },
     graph: {
       load: { unet: "unet", clip: { node: "CLIPLoader", type: "flux2", slots: ["clip"] }, vae: "vae" },
+      // Distilled to run at cfg 1, where a negative prompt is not weighed.
+      // Normalized Attention Guidance (a core ComfyUI node) gives it one
+      // back at no extra steps: without it, portraits fed a backstory
+      // painted that backstory as lettering in most pictures.
+      nag: { scale: 5, alpha: 0.5, tau: 1.5 },
       referenceLatent: true,
-      negative: "zero",
+      negative: "text",
+      // "text" alone still left lettering in half the portraits.
+      negativeExtra: "words, letters, caption, subtitle, typography, logo",
       latent: "EmptyFlux2LatentImage",
       sampler: { kind: "advanced", guider: { node: "CFGGuider", cfg: 1 }, sampler: "euler", sigmas: { node: "Flux2Scheduler", steps: 4 } },
     },

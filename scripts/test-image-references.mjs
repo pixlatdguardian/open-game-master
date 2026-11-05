@@ -22,7 +22,7 @@ register("./lib/register-alias.mjs", import.meta.url);
 
 const { generateComfyImage } = await import("../src/lib/comfyui.ts");
 const { comfyModel } = await import("../src/lib/image-models/catalog.ts");
-const { buildModelWorkflow, referenceLead, takesReferences } = await import("../src/lib/image-models/workflow.ts");
+const { buildModelWorkflow, honoursNegative, referenceLead, takesReferences } = await import("../src/lib/image-models/workflow.ts");
 const { saveGlobalConfig } = await import("../src/lib/db/app-settings.ts");
 const { imageVariantsSettled } = await import("../src/lib/image-variants.ts");
 const { createUser } = await import("../src/lib/db/users.ts");
@@ -151,9 +151,8 @@ await test("klein 4B scales, encodes and chains a portrait into the guider's pos
   const [[scaleId, scale]] = nodesOf(graph, "ImageScaleToTotalPixels");
   const [[encodeId, encode]] = nodesOf(graph, "VAEEncode");
   const [[refId, ref]] = nodesOf(graph, "ReferenceLatent");
-  const [[textId, text]] = nodesOf(graph, "CLIPTextEncode");
+  const [[textId, text], [negativeId, negativeText]] = nodesOf(graph, "CLIPTextEncode");
   const [[, guider]] = nodesOf(graph, "CFGGuider");
-  const [[, zero]] = nodesOf(graph, "ConditioningZeroOut");
   const [[vaeId]] = nodesOf(graph, "VAELoader");
   assert.equal(load.inputs.image, "odm-ref-a.png");
   assert.deepEqual(scale.inputs.image, [loadId, 0]);
@@ -161,9 +160,27 @@ await test("klein 4B scales, encodes and chains a portrait into the guider's pos
   assert.deepEqual(encode.inputs, { pixels: [scaleId, 0], vae: [vaeId, 0] });
   assert.deepEqual(ref.inputs, { conditioning: [textId, 0], latent: [encodeId, 0] });
   assert.deepEqual(guider.inputs.positive, [refId, 0]);
-  // The negative is the referenced positive zeroed, as klein's reference graph does.
-  assert.deepEqual(zero.inputs.conditioning, [refId, 0]);
   assert.match(text.inputs.text, /^The character from the reference image, in a new scene: at a tavern table$/);
+  // NAG steers away from the negative, so the portrait stays off it.
+  assert.deepEqual(guider.inputs.negative, [negativeId, 0]);
+  assert.match(negativeText.inputs.text, /typography/);
+});
+
+await test("klein 4B weighs a negative prompt through NAG, so a table's boundary reaches it", null, () => {
+  assert.equal(honoursNegative(klein), true);
+  const graph = buildModelWorkflow(klein, { ...request(KLEIN_FILES, undefined), negative: "no spiders" });
+  const [[nagId, nag]] = nodesOf(graph, "NAGuidance");
+  const [[unetId]] = nodesOf(graph, "UNETLoader");
+  const [[, guider]] = nodesOf(graph, "CFGGuider");
+  assert.deepEqual(nag.inputs, { nag_scale: 5, nag_alpha: 0.5, nag_tau: 1.5, model: [unetId, 0] });
+  assert.deepEqual(guider.inputs.model, [nagId, 0]);
+  assert.equal(guider.inputs.cfg, 1);
+  const negative = graph[guider.inputs.negative[0]];
+  assert.equal(negative.class_type, "CLIPTextEncode");
+  assert.match(negative.inputs.text, /^text, watermark.*, words, letters, caption, subtitle, typography, logo, no spiders$/);
+  assert.equal(nodesOf(graph, "ConditioningZeroOut").length, 0);
+  // Models without NAG keep their negatives as they were.
+  assert.equal(JSON.stringify(buildModelWorkflow(zTurbo, request(Z_FILES, undefined))).includes("typography"), false);
 });
 
 await test("klein 4B chains two portraits one after the other", null, () => {

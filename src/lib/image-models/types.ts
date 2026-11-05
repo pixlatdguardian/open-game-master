@@ -101,6 +101,12 @@ export type GraphRecipe = {
   // "text" encodes ODM's negative prompt; "zero" zeroes the positive, for
   // models distilled to run without one.
   negative: "text" | "zero";
+  // Words this model also keeps out, after ODM's own, where its pictures
+  // were seen to need them.
+  negativeExtra?: string;
+  // Normalized Attention Guidance (ComfyUI's core NAGuidance node): weighs
+  // the negative inside attention, so a model distilled to cfg 1 honours one.
+  nag?: { scale: number; alpha: number; tau: number };
   // FluxGuidance on the positive (and the negative, when both is set).
   guidance?: number;
   guidanceOnNegative?: boolean;

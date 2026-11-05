@@ -276,6 +276,15 @@
    ],
    "optional": []
   },
+  "NAGuidance": {
+   "required": [
+    "model",
+    "nag_scale",
+    "nag_alpha",
+    "nag_tau"
+   ],
+   "optional": []
+  },
   "QuadrupleCLIPLoader": {
    "required": [
     "clip_name1",

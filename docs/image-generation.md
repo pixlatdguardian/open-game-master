@@ -74,6 +74,11 @@ Notes:
   `odm-ref-<hash>.<ext>` so the same portrait overwrites its own copy.
   Anyone who can reach that ComfyUI can see them; keep it on loopback or a
   private address.
+- FLUX.2 [klein] 4B is distilled to run without a negative prompt; ODM gives
+  it one through ComfyUI's Normalized Attention Guidance node (`NAGuidance`),
+  so a table's boundary reaches its pictures and a backstory in the portrait
+  prompt is not painted as lettering. Character references stay off its
+  negative: there they would push the character out of the picture.
 - A portrait on a plain background works best as a reference. A scenic
   background tends to carry over into the scene, and a close head-and-
   shoulders crop loses whatever it leaves out (a tail, boots, the lower
